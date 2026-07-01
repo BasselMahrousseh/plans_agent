@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Two Hand Detector</title>
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <!-- p5.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.2.0/p5.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <video id="video" autoplay muted playsinline></video>
+
+  <!-- e& branded UI layer -->
+  <div id="brandLayer">
+    <div id="logoBadge">
+      <img src="eand-logo.png" alt="e& logo">
+      <span>e& Genie</span>
+    </div>
+
+    <div id="statusPill">Hand Detection Active</div>
+  </div>
+
+  <!-- e& camera frame -->
+  <div id="cameraFrame">
+    <div class="corner top-left"></div>
+    <div class="corner top-right"></div>
+    <div class="corner bottom-left"></div>
+    <div class="corner bottom-right"></div>
+  </div>
+
+  <script src="detection.js"></script>
+  <script src="sketch.js"></script>
+</body>
+</html>

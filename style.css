@@ -1,0 +1,164 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: black;
+  width: 100%;
+  height: 100%;
+  font-family: Arial, sans-serif;
+}
+
+#video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: 1;
+  transform: scaleX(-1);
+}
+
+#canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Main e& frame */
+#cameraFrame {
+  position: fixed;
+  inset: 24px;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 42px;
+
+  border: 4px solid rgba(230, 0, 0, 0.58);
+
+  box-shadow:
+    0 0 28px rgba(230, 0, 0, 0.55),
+    0 0 80px rgba(230, 0, 0, 0.28),
+    inset 0 0 45px rgba(230, 0, 0, 0.26),
+    inset 0 0 120px rgba(0, 0, 0, 0.45);
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(230, 0, 0, 0.10),
+      rgba(255, 255, 255, 0.015),
+      rgba(230, 0, 0, 0.10)
+    );
+}
+
+/* Soft dark edge vignette */
+#cameraFrame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 38px;
+  box-shadow:
+    inset 0 0 120px rgba(0, 0, 0, 0.55),
+    inset 0 0 180px rgba(230, 0, 0, 0.10);
+}
+
+/* Red scanner-style corner accents */
+.corner {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  border-color: #e60000;
+  opacity: 0.95;
+}
+
+.top-left {
+  top: 18px;
+  left: 18px;
+  border-top: 6px solid #e60000;
+  border-left: 6px solid #e60000;
+  border-top-left-radius: 24px;
+}
+
+.top-right {
+  top: 18px;
+  right: 18px;
+  border-top: 6px solid #e60000;
+  border-right: 6px solid #e60000;
+  border-top-right-radius: 24px;
+}
+
+.bottom-left {
+  bottom: 18px;
+  left: 18px;
+  border-bottom: 6px solid #e60000;
+  border-left: 6px solid #e60000;
+  border-bottom-left-radius: 24px;
+}
+
+.bottom-right {
+  bottom: 18px;
+  right: 18px;
+  border-bottom: 6px solid #e60000;
+  border-right: 6px solid #e60000;
+  border-bottom-right-radius: 24px;
+}
+
+/* Top branding layer */
+#brandLayer {
+  position: fixed;
+  top: 42px;
+  left: 50px;
+  right: 50px;
+  z-index: 8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+
+#logoBadge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  padding: 10px 18px;
+  border-radius: 999px;
+
+  background: #000000; /* solid black */  border: 1px solid rgba(230, 0, 0, 0.55);
+  box-shadow:
+    0 0 24px rgba(230, 0, 0, 0.35),
+    inset 0 0 18px rgba(255, 255, 255, 0.05);
+
+  backdrop-filter: blur(12px);
+}
+
+#logoBadge img {
+  width: 54px;
+  height: auto;
+  display: block;
+}
+
+#logoBadge span {
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+#statusPill {
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+
+  padding: 12px 18px;
+  border-radius: 999px;
+
+  background: rgba(230, 0, 0, 0.72);
+  box-shadow:
+    0 0 24px rgba(230, 0, 0, 0.45),
+    inset 0 0 14px rgba(255, 255, 255, 0.12);
+
+  backdrop-filter: blur(10px);
+}
