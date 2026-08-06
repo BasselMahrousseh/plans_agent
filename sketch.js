@@ -1,6 +1,5 @@
 let appState = "welcome";
 
-let leftHandReady = false;
 let rightHandReady = false;
 let confettiPieces = [];
 let resultStarted = false;
@@ -12,9 +11,19 @@ let practiceStep = "right";
 let feedbackMessage = "";
 
 let instructionsStartTime = null;
-let calibratedLeftX = null;
 let calibratedRightX = null;
-let bothHandsReadySince = null;
+let rightHandReadySince = null;
+let thumbsUpSince = null;
+let rightHandGraceUntil = 0;
+let lastRightHandSeenAt = 0;
+let lastRenderedState = null;
+let stateEnteredAt = 0;
+let quizTransition = null;
+let quizEntryAt = 0;
+let quizDisplayX = 0;
+let recommendedPlans = [];
+let ambientParticles = [];
+let restartButton = null;
 let questions = [
   { text: "Do you want the cheapest monthly plan?", tag: "cheap" },
   { text: "Do you need unlimited local data?", tag: "unlimitedData" },
@@ -139,19 +148,40 @@ let quizCardRotation = 0;
 let questionNeedsCalibration = true;
 let readyStartTime = null;
 const CALIBRATION_HOLD_TIME = 700;
-const SWIPE_DISTANCE = 130;
+const THUMBS_UP_HOLD_TIME = 350;
+const SWIPE_DISTANCE = 85;
 const SWIPE_TIME_LIMIT = 1400;
-const COOLDOWN = 800;
+const COOLDOWN = 350;
+const HAND_LOSS_GRACE_TIME = 300;
 
 
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.id("canvas");
-  textFont("Arial");
+  textFont("Segoe UI");
+
+  for (let i = 0; i < 24; i++) {
+    ambientParticles.push({
+      x: random(width),
+      y: random(height),
+      size: random(2, 7),
+      speed: random(0.08, 0.3),
+      phase: random(TWO_PI)
+    });
+  }
+
+  restartButton = document.getElementById("restartButton");
+  if (restartButton) {
+    restartButton.addEventListener("click", restartExperience);
+  }
 }
 
 function draw() {
   clear();
+
+  updateStateEntrance();
+  drawAmbientScene();
+  updateStatusPill();
 
   let hands = getHands();
 
@@ -159,11 +189,20 @@ function draw() {
     drawAllHands(hands);
     drawWelcomeScreen();
 
-    let mainHand = getMainHand();
+    let mainHand = getRightHand();
 
     if (mainHand && isThumbsUp(mainHand)) {
-      appState = "openHands";
-      feedbackMessage = "";
+      if (thumbsUpSince === null) {
+        thumbsUpSince = millis();
+      }
+
+      if (millis() - thumbsUpSince >= THUMBS_UP_HOLD_TIME) {
+        appState = "openHands";
+        feedbackMessage = "";
+        thumbsUpSince = null;
+      }
+    } else {
+      thumbsUpSince = null;
     }
   }
 
@@ -172,17 +211,17 @@ function draw() {
     drawAllHandsWithSideColors(hands);
     drawOpenHandsScreen();
 
-    if (leftHandReady && rightHandReady) {
-      if (bothHandsReadySince === null) {
-        bothHandsReadySince = millis();
+    if (rightHandReady) {
+      if (rightHandReadySince === null) {
+        rightHandReadySince = millis();
       }
 
-      if (millis() - bothHandsReadySince > CALIBRATION_HOLD_TIME) {
-        calibrateHandPositions(hands);
+      if (millis() - rightHandReadySince > CALIBRATION_HOLD_TIME) {
+        calibrateRightHand();
         appState = "instructions";
       }
     } else {
-      bothHandsReadySince = null;
+      rightHandReadySince = null;
     }
   }
 
@@ -200,7 +239,7 @@ function draw() {
       feedbackMessage = "Swipe your RIGHT hand to the right.";
       instructionsStartTime = null;
       resetSwipe();
-      calibrateHandPositions(hands);
+      calibratedRightX = null;
     }
   }
 
@@ -225,211 +264,296 @@ function draw() {
 
   else if (appState === "quiz") {
     drawAllHandsWithSideColors(hands);
-    detectQuizSwipe();
-    drawQuizScreen();
+    updateQuizTransition();
+
+    if (appState === "quiz") {
+      if (!quizTransition) {
+        detectQuizSwipe();
+      }
+      drawQuizScreen();
+    }
   }
 
   else if (appState === "result") {
-    drawAllHandsWithSideColors(hands);
     drawResultScreen();
   }
 }
 
-/* -------------------- STATE SCREENS -------------------- */
-function calibrateHandPositions(hands) {
-  let sorted = getHandsSortedByScreenX(hands);
+function updateStateEntrance() {
+  if (appState !== lastRenderedState) {
+    lastRenderedState = appState;
+    stateEnteredAt = millis();
 
-  if (sorted.length < 2) {
-    return;
+    if (appState === "result" && restartButton) {
+      restartButton.classList.add("is-visible");
+    } else if (restartButton) {
+      restartButton.classList.remove("is-visible");
+    }
+  }
+}
+
+function getEntranceProgress(delay = 0, duration = 520) {
+  let elapsed = millis() - stateEnteredAt - delay;
+  return easeOutCubic(constrain(elapsed / duration, 0, 1));
+}
+
+function easeOutCubic(value) {
+  return 1 - Math.pow(1 - value, 3);
+}
+
+function easeOutBack(value) {
+  let amount = 1.70158;
+  return 1 + (amount + 1) * Math.pow(value - 1, 3) + amount * Math.pow(value - 1, 2);
+}
+
+function beginScreenEntrance(delay = 0) {
+  let progress = getEntranceProgress(delay);
+  push();
+  drawingContext.globalAlpha = progress;
+  translate(0, (1 - progress) * 24);
+  return progress;
+}
+
+function endScreenEntrance() {
+  pop();
+}
+
+function drawAmbientScene() {
+  push();
+
+  let topGradient = drawingContext.createLinearGradient(0, 0, 0, height * 0.72);
+  topGradient.addColorStop(0, "rgba(4, 5, 8, 0.70)");
+  topGradient.addColorStop(0.45, "rgba(4, 5, 8, 0.16)");
+  topGradient.addColorStop(1, "rgba(4, 5, 8, 0)");
+  drawingContext.fillStyle = topGradient;
+  drawingContext.fillRect(0, 0, width, height * 0.72);
+
+  noStroke();
+  for (let particle of ambientParticles) {
+    particle.y -= particle.speed;
+    if (particle.y < -10) {
+      particle.y = height + 10;
+      particle.x = random(width);
+    }
+
+    let glow = 35 + sin(frameCount * 0.02 + particle.phase) * 18;
+    fill(255, 35, 48, glow);
+    circle(particle.x, particle.y, particle.size);
   }
 
-  let leftHand = sorted[0].hand;
-  let rightHand = sorted[sorted.length - 1].hand;
+  let scanY = (millis() * 0.035) % max(height, 1);
+  let scanGradient = drawingContext.createLinearGradient(0, scanY - 45, 0, scanY + 45);
+  scanGradient.addColorStop(0, "rgba(255, 28, 48, 0)");
+  scanGradient.addColorStop(0.5, "rgba(255, 28, 48, 0.07)");
+  scanGradient.addColorStop(1, "rgba(255, 28, 48, 0)");
+  drawingContext.fillStyle = scanGradient;
+  drawingContext.fillRect(0, scanY - 45, width, 90);
+  pop();
+}
 
-  calibratedLeftX = getHandCenter(leftHand).x;
+function updateStatusPill() {
+  let statusPill = document.getElementById("statusPill");
+  if (!statusPill) return;
+
+  let labels = {
+    welcome: "READY FOR YOUR GESTURE",
+    openHands: "CALIBRATING RIGHT HAND",
+    instructions: "GESTURE GUIDE",
+    practice: "PRACTICE MODE",
+    ready: "CALIBRATION COMPLETE",
+    quiz: `MATCHING · ${min(currentQuestion + 1, questions.length)}/${questions.length}`,
+    result: "YOUR PACKAGES ARE READY"
+  };
+
+  statusPill.textContent = labels[appState] || "PACKAGE ADVISOR READY";
+}
+
+/* -------------------- STATE SCREENS -------------------- */
+function calibrateRightHand() {
+  let rightHand = getRightHand();
+
+  if (!rightHand) {
+    calibratedRightX = null;
+    return false;
+  }
+
   calibratedRightX = getHandCenter(rightHand).x;
-
-  feedbackMessage = "Hands calibrated!";
+  swipeStartTime = millis();
+  feedbackMessage = "Right hand calibrated!";
+  return true;
 }
 
 
 function drawWelcomeScreen() {
-  // lighter overlay so camera stays visible
-  noStroke();
-  fill(0, 0, 0, 55);
-  rect(0, 0, width, height);
+  drawDarkOverlay(28);
+  beginScreenEntrance();
 
-  // small top message card
-  rectMode(CENTER);
-  stroke(230, 0, 0, 180);
-  strokeWeight(2);
-  fill(0, 0, 0, 215);
-  rect(width / 2, 190, min(560, width * 0.78), 155, 24);
+  let panelY = min(270, height * 0.36);
+  let panelW = min(720, width * 0.86);
+  drawGlassPanel(width / 2, panelY, panelW, 245, 32, [255, 31, 52]);
 
-  noFill();
-  stroke(230, 0, 0, 75);
-  strokeWeight(5);
-  rect(width / 2, 190, min(560, width * 0.78), 155, 24);
-
-  // text
   noStroke();
   textAlign(CENTER, CENTER);
+  drawEyebrow("e& PACKAGE ADVISOR", width / 2, panelY - 82);
+
+  fill(255);
   textStyle(BOLD);
+  textSize(min(48, width * 0.085));
+  text("Find the package that fits you", width / 2, panelY - 32);
 
-  fill(255);
-  textSize(26);
-  text("Welcome to the", width / 2, 150);
-
-  fill(230, 0, 0);
-  textSize(38);
-  text("e& Genie", width / 2, 195);
-
-  fill(255);
-  textSize(18);
+  fill(205, 208, 216);
   textStyle(NORMAL);
-  text("Give a thumbs up when you're ready to start", width / 2, 240);
+  textSize(17);
+  text("Smart questions, agentic reasoning, and a match made for you.", width / 2, panelY + 13);
 
-  rectMode(CORNER);
+  let pulse = 0.5 + sin(millis() * 0.006) * 0.5;
+  drawActionPill(
+    width / 2,
+    panelY + 72,
+    330,
+    52,
+    "THUMBS UP  ·  HOLD TO BEGIN",
+    [255, 31, 52],
+    pulse
+  );
+
+  if (thumbsUpSince !== null) {
+    let holdProgress = constrain((millis() - thumbsUpSince) / THUMBS_UP_HOLD_TIME, 0, 1);
+    noStroke();
+    fill(255, 31, 52);
+    rectMode(CORNER);
+    rect(width / 2 - 150, panelY + 101, 300 * holdProgress, 3, 99);
+  }
+
+  endScreenEntrance();
 }
 
 
 
 function drawOpenHandsScreen() {
-  drawDarkOverlay();
+  drawDarkOverlay(36);
+  beginScreenEntrance();
+  let panelY = 205;
+  drawGlassPanel(width / 2, panelY, min(640, width * 0.86), 190, 28, [0, 210, 142]);
 
-  drawGlassCard(560, 130);
-
+  drawEyebrow("STEP 1 OF 2  ·  CALIBRATION", width / 2, panelY - 62);
   fill(255);
   noStroke();
   textAlign(CENTER, CENTER);
   textStyle(BOLD);
+  textSize(28);
+  text("Show your right hand", width / 2, panelY - 20);
 
-  textSize(24);
-  text("Hold both hands open", width / 2, 85);
-
-  textSize(15);
+  textSize(15.5);
   textStyle(NORMAL);
-  fill(220);
-  text("Left hand will turn red · Right hand will turn green", width / 2, 122);
+  fill(200, 204, 212);
+  text("Open your palm and hold it comfortably inside the frame.", width / 2, panelY + 18);
 
   drawDetectionStatus(
-    width / 2 - 135,
-    170,
-    "Left detected!",
-    leftHandReady,
-    [230, 0, 0]
-  );
-
-  drawDetectionStatus(
-    width / 2 + 135,
-    170,
-    "Right detected!",
+    width / 2,
+    panelY + 64,
+    "Right hand detected!",
     rightHandReady,
     [0, 190, 90]
   );
+  endScreenEntrance();
 }
 function drawInstructionsScreen() {
-  drawDarkOverlay();
+  drawDarkOverlay(36);
+  beginScreenEntrance();
+  let panelY = 210;
+  drawGlassPanel(width / 2, panelY, min(720, width * 0.9), 200, 28, [255, 31, 52]);
 
-  drawGlassCard(620, 125);
-
+  drawEyebrow("STEP 2 OF 2  ·  LEARN THE CONTROLS", width / 2, panelY - 72);
   fill(255);
   noStroke();
   textAlign(CENTER, CENTER);
-
   textStyle(BOLD);
-  textSize(22);
-  text("Swipe instructions", width / 2, 82);
+  textSize(27);
+  text("One hand. Two simple choices.", width / 2, panelY - 34);
 
-  textSize(17);
-  fill(0, 190, 90);
-  text("RIGHT HAND → YES", width / 2 - 125, 125);
+  drawChoiceChip(width / 2 - 150, panelY + 22, "←", "NO", [255, 57, 76]);
+  drawChoiceChip(width / 2 + 150, panelY + 22, "→", "YES", [0, 212, 145]);
 
-  fill(230, 0, 0);
-  text("LEFT HAND ← NO", width / 2 + 125, 125);
-
-  fill(220);
+  fill(190, 195, 205);
   textStyle(NORMAL);
   textSize(14);
-  text("Practice starts in a moment", width / 2, 158);
+  text("Keep your palm open and move from the middle", width / 2, panelY + 78);
+  endScreenEntrance();
 }
 function drawPracticeScreen() {
-  drawDarkOverlay();
+  drawDarkOverlay(30);
+  beginScreenEntrance();
+  let panelY = 205;
+  let isRight = practiceStep === "right";
+  let accent = isRight ? [0, 212, 145] : [255, 57, 76];
+  drawGlassPanel(width / 2, panelY, min(680, width * 0.88), 205, 30, accent);
 
-  drawGlassCard(580, 135);
-
+  drawEyebrow("PRACTICE  ·  BUILD MUSCLE MEMORY", width / 2, panelY - 70);
   fill(255);
   noStroke();
   textAlign(CENTER, CENTER);
   textStyle(BOLD);
+  textSize(30);
+  fill(accent[0], accent[1], accent[2]);
+  text(isRight ? "Swipe right" : "Now swipe left", width / 2, panelY - 24);
+  drawAnimatedArrow(width / 2, panelY + 22, isRight ? 1 : -1, accent);
 
-  textSize(22);
-  text("Practice swipe", width / 2, 78);
-
-  if (practiceStep === "right") {
-    fill(0, 190, 90);
-    textSize(30);
-    text("Swipe RIGHT", width / 2, 120);
-  }
-
-  if (practiceStep === "left") {
-    fill(230, 0, 0);
-    textSize(30);
-    text("Swipe LEFT", width / 2, 120);
-  }
-
-  fill(230);
+  fill(205, 208, 216);
   textStyle(NORMAL);
   textSize(14);
-
-  if (feedbackMessage !== "") {
-    text(feedbackMessage, width / 2, 160);
-  } else {
-    text("Move one open hand clearly to the side", width / 2, 160);
-  }
+  text(feedbackMessage || "Move your open right hand clearly to the side", width / 2, panelY + 76);
+  endScreenEntrance();
 }
 
 function drawReadyScreen() {
-  drawDarkOverlay();
+  drawDarkOverlay(42);
+  beginScreenEntrance();
+  let panelY = 220;
+  drawGlassPanel(width / 2, panelY, min(580, width * 0.84), 190, 30, [0, 212, 145]);
 
-  drawGlassCard(560, 120);
+  let pulse = 1 + sin(millis() * 0.008) * 0.04;
+  push();
+  translate(width / 2, panelY - 46);
+  scale(pulse);
+  noStroke();
+  fill(0, 212, 145, 45);
+  circle(0, 0, 64);
+  fill(0, 212, 145);
+  circle(0, 0, 44);
+  fill(5, 15, 13);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(23);
+  text("✓", 0, -1);
+  pop();
 
   fill(255);
   noStroke();
   textAlign(CENTER, CENTER);
   textStyle(BOLD);
+  textSize(30);
+  text("You're ready", width / 2, panelY + 7);
 
-  textSize(28);
-  text("You're ready!", width / 2, 95);
-
-  fill(230, 0, 0);
-  textSize(18);
-  text("e& Genie is ready to begin", width / 2, 135);
+  fill(195, 200, 210);
+  textStyle(NORMAL);
+  textSize(15);
+  text("Preparing your first question...", width / 2, panelY + 49);
+  let readyProgress = readyStartTime === null ? 0 : (millis() - readyStartTime) / 1500;
+  drawLoadingBar(width / 2, panelY + 76, 260, readyProgress);
+  endScreenEntrance();
 }
 /* -------------------- OPEN HAND DETECTION -------------------- */
 
 function detectOpenHands(hands) {
-  leftHandReady = false;
   rightHandReady = false;
 
   if (hands.length === 0) return;
 
-  let sorted = getHandsSortedByScreenX(hands);
+  let rightHand = getRightHand();
 
-  if (sorted.length >= 1) {
-    let leftCandidate = sorted[0];
-
-    if (isOpenHand(leftCandidate.hand)) {
-      leftHandReady = true;
-    }
-  }
-
-  if (sorted.length >= 2) {
-    let rightCandidate = sorted[sorted.length - 1];
-
-    if (isOpenHand(rightCandidate.hand)) {
-      rightHandReady = true;
-    }
+  if (rightHand && isOpenHand(rightHand)) {
+    rightHandReady = true;
   }
 }
 
@@ -445,24 +569,15 @@ function isOpenHand(hand) {
 /* -------------------- SWIPE PRACTICE -------------------- */
 
 function detectPracticeSwipe() {
-  let hands = getHands();
-  let sorted = getHandsSortedByScreenX(hands);
+  let rightHand = getRightHand();
 
-  if (sorted.length < 2) {
-    feedbackMessage = "Keep both hands visible.";
+  if (!rightHand) {
+    feedbackMessage = "Show only your RIGHT hand.";
+    calibratedRightX = null;
     return;
   }
 
-  let leftHand = sorted[0].hand;
-  let rightHand = sorted[sorted.length - 1].hand;
-
-  let leftX = getHandCenter(leftHand).x;
   let rightX = getHandCenter(rightHand).x;
-
-  if (calibratedLeftX === null || calibratedRightX === null) {
-    calibrateHandPositions(hands);
-    return;
-  }
 
   let now = millis();
 
@@ -470,7 +585,17 @@ function detectPracticeSwipe() {
     return;
   }
 
-  let leftMovement = leftX - calibratedLeftX;
+  if (calibratedRightX === null) {
+    if (!isHandInStartZone(rightX)) {
+      feedbackMessage = "Move your RIGHT hand to the center first.";
+      return;
+    }
+
+    calibrateRightHand();
+    feedbackMessage = `Now swipe ${practiceStep.toUpperCase()} with your RIGHT hand.`;
+    return;
+  }
+
   let rightMovement = rightX - calibratedRightX;
 
   if (practiceStep === "right") {
@@ -480,38 +605,34 @@ function detectPracticeSwipe() {
       feedbackMessage = "Right hand moving right...";
     }
 
-    if (rightMovement > SWIPE_DISTANCE) {
+    if (rightMovement > getSwipeDistance()) {
       feedbackMessage = "Right swipe detected!";
       practiceStep = "left";
       lastSwipeTime = now;
-
-      // recalibrate after successful right swipe
-      calibrateHandPositions(hands);
+      calibratedRightX = null;
 
       return;
     }
 
-    if (leftMovement < -SWIPE_DISTANCE) {
-      feedbackMessage = "Left swipe detected! Starting questions...";
+    if (rightMovement < -getSwipeDistance()) {
+      feedbackMessage = "Swipe right first. Return your hand to center.";
       lastSwipeTime = now;
-      resetSwipe();
-
-      startQuiz();
-
+      calibratedRightX = null;
       return;
     }
   }
 
   if (practiceStep === "left") {
-    feedbackMessage = "Swipe your LEFT hand to the left.";
+    feedbackMessage = "Swipe your RIGHT hand to the left.";
 
-    if (leftMovement < -50) {
-      feedbackMessage = "Left hand moving left...";
+    if (rightMovement < -50) {
+      feedbackMessage = "Right hand moving left...";
     }
 
-    if (leftMovement < -SWIPE_DISTANCE) {
+    if (rightMovement < -getSwipeDistance()) {
       feedbackMessage = "Left swipe detected!";
       lastSwipeTime = now;
+      calibratedRightX = null;
 
       setTimeout(() => {
         appState = "ready";
@@ -520,10 +641,10 @@ function detectPracticeSwipe() {
       return;
     }
 
-    if (rightMovement > SWIPE_DISTANCE) {
-      feedbackMessage = "That was your right hand. Use your LEFT hand.";
+    if (rightMovement > getSwipeDistance()) {
+      feedbackMessage = "Swipe left now. Return your hand to center.";
       lastSwipeTime = now;
-      calibrateHandPositions(hands);
+      calibratedRightX = null;
       return;
     }
   }
@@ -532,6 +653,14 @@ function detectPracticeSwipe() {
 function resetSwipe() {
   swipeStartX = null;
   swipeStartTime = 0;
+}
+
+function isHandInStartZone(handX) {
+  return handX >= width * 0.2 && handX <= width * 0.8;
+}
+
+function getSwipeDistance() {
+  return min(SWIPE_DISTANCE, max(55, width * 0.065));
 }
 
 /* -------------------- HAND DRAWING -------------------- */
@@ -543,16 +672,10 @@ function drawAllHands(hands) {
 }
 
 function drawAllHandsWithSideColors(hands) {
-  let sorted = getHandsSortedByScreenX(hands);
-
-  for (let i = 0; i < sorted.length; i++) {
-    let hand = sorted[i].hand;
-
-    if (i === 0) {
-      drawHand(hand, [230, 0, 0]); // left hand red
-    } else {
-      drawHand(hand, [0, 190, 90]); // right hand green
-    }
+  for (let i = 0; i < hands.length; i++) {
+    let isRightHand = getPhysicalHandedness(i) === "Right";
+    let handColor = isRightHand ? [0, 190, 90] : [230, 0, 0];
+    drawHand(hands[i], handColor);
   }
 }
 
@@ -630,40 +753,72 @@ function drawThumbsUpLabel(hand) {
 
 function isThumbsUp(hand) {
   let wrist = hand[0];
-
   let thumbTip = hand[4];
-  let thumbIp = hand[3];
   let thumbMcp = hand[2];
+  let palmSize = landmarkDistance(wrist, hand[9]);
+  let thumbLength = landmarkDistance(thumbMcp, thumbTip);
+  let thumbRise = thumbMcp.y - thumbTip.y;
+  let thumbAngle = landmarkAngle(hand[2], hand[3], hand[4]);
+  let thumbDirection = thumbRise / max(thumbLength, 0.001);
 
-  let indexTip = hand[8];
-  let indexPip = hand[6];
-
-  let middleTip = hand[12];
-  let middlePip = hand[10];
-
-  let ringTip = hand[16];
-  let ringPip = hand[14];
-
-  let pinkyTip = hand[20];
-  let pinkyPip = hand[18];
-
-  let thumbIsUp =
-    thumbTip.y < thumbIp.y &&
-    thumbTip.y < thumbMcp.y &&
+  let thumbIsExtended = thumbAngle > 145;
+  let thumbPointsUp =
+    thumbDirection > 0.55 &&
+    thumbRise > palmSize * 0.45 &&
     thumbTip.y < wrist.y;
 
-  let indexFolded = indexTip.y > indexPip.y;
-  let middleFolded = middleTip.y > middlePip.y;
-  let ringFolded = ringTip.y > ringPip.y;
-  let pinkyFolded = pinkyTip.y > pinkyPip.y;
+  let foldedFingerCount = 0;
+  let fingerIndexes = [
+    [5, 6, 8],
+    [9, 10, 12],
+    [13, 14, 16],
+    [17, 18, 20]
+  ];
 
-  return (
-    thumbIsUp &&
-    indexFolded &&
-    middleFolded &&
-    ringFolded &&
-    pinkyFolded
-  );
+  for (let indexes of fingerIndexes) {
+    let mcp = hand[indexes[0]];
+    let pip = hand[indexes[1]];
+    let tip = hand[indexes[2]];
+    let jointIsBent = landmarkAngle(mcp, pip, tip) < 145;
+    let tipIsNearPalm =
+      landmarkDistance(tip, wrist) < landmarkDistance(pip, wrist) * 1.12;
+
+    if (jointIsBent || tipIsNearPalm) {
+      foldedFingerCount++;
+    }
+  }
+
+  return thumbIsExtended && thumbPointsUp && foldedFingerCount >= 3;
+}
+
+function landmarkDistance(a, b) {
+  let dx = a.x - b.x;
+  let dy = a.y - b.y;
+  let dz = (a.z || 0) - (b.z || 0);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function landmarkAngle(a, vertex, c) {
+  let first = {
+    x: a.x - vertex.x,
+    y: a.y - vertex.y,
+    z: (a.z || 0) - (vertex.z || 0)
+  };
+  let second = {
+    x: c.x - vertex.x,
+    y: c.y - vertex.y,
+    z: (c.z || 0) - (vertex.z || 0)
+  };
+  let firstLength = Math.sqrt(first.x ** 2 + first.y ** 2 + first.z ** 2);
+  let secondLength = Math.sqrt(second.x ** 2 + second.y ** 2 + second.z ** 2);
+
+  if (firstLength === 0 || secondLength === 0) return 0;
+
+  let cosine =
+    (first.x * second.x + first.y * second.y + first.z * second.z) /
+    (firstLength * secondLength);
+
+  return Math.acos(constrain(cosine, -1, 1)) * (180 / Math.PI);
 }
 
 
@@ -705,6 +860,7 @@ function drawConfetti() {
 function startResultCelebration() {
   confettiPieces = [];
   resultStarted = true;
+  stateEnteredAt = millis();
 
   for (let i = 0; i < 180; i++) {
     confettiPieces.push({
@@ -732,31 +888,46 @@ function getHands() {
   return [];
 }
 
-function getMainHand() {
+function getRightHand() {
   let hands = getHands();
 
-  if (hands.length > 0) {
+  for (let i = 0; i < hands.length; i++) {
+    if (getPhysicalHandedness(i) === "Right") {
+      rightHandGraceUntil = Date.now() + 800;
+      return hands[i];
+    }
+  }
+
+  // Handedness can flicker for a frame while the hand moves quickly. Once a
+  // right hand has been confirmed, keep the single tracked hand briefly.
+  if (hands.length === 1 && Date.now() < rightHandGraceUntil) {
     return hands[0];
   }
 
   return null;
 }
 
-function getHandsSortedByScreenX(hands) {
-  let withCenters = [];
+function getPhysicalHandedness(handIndex) {
+  let handednessList = window.detections.multiHandedness || [];
+  let handedness = handednessList[handIndex];
 
-  for (let hand of hands) {
-    let center = getHandCenter(hand);
+  if (!handedness) return null;
 
-    withCenters.push({
-      hand: hand,
-      x: center.x
-    });
+  let classification = handedness;
+
+  if (Array.isArray(handedness)) {
+    classification = handedness[0];
+  } else if (handedness.classification) {
+    classification = handedness.classification[0];
   }
 
-  withCenters.sort((a, b) => a.x - b.x);
+  let modelLabel = classification && classification.label;
 
-  return withCenters;
+  if (!modelLabel) return null;
+
+  // MediaPipe Hands assumes a mirrored input image. The camera frame sent to
+  // the model is not mirrored (only its CSS display is), so swap its label.
+  return modelLabel === "Left" ? "Right" : "Left";
 }
 
 function getHandCenter(hand) {
@@ -799,10 +970,118 @@ function landmarkToScreen(landmark) {
 
 /* -------------------- UI HELPERS -------------------- */
 
-function drawDarkOverlay() {
+function drawDarkOverlay(opacity = 45) {
   noStroke();
-  fill(0, 0, 0, 45); // much lighter overlay
+  fill(0, 0, 0, opacity);
   rect(0, 0, width, height);
+}
+
+function drawGlassPanel(x, y, panelW, panelH, radius, accent) {
+  push();
+  rectMode(CENTER);
+  drawingContext.shadowColor = `rgba(${accent[0]}, ${accent[1]}, ${accent[2]}, 0.28)`;
+  drawingContext.shadowBlur = 34;
+  drawingContext.shadowOffsetY = 14;
+  stroke(accent[0], accent[1], accent[2], 115);
+  strokeWeight(1.5);
+
+  let gradient = drawingContext.createLinearGradient(
+    x - panelW / 2,
+    y - panelH / 2,
+    x + panelW / 2,
+    y + panelH / 2
+  );
+  gradient.addColorStop(0, "rgba(20, 22, 28, 0.94)");
+  gradient.addColorStop(0.52, "rgba(8, 9, 13, 0.92)");
+  gradient.addColorStop(1, "rgba(14, 8, 12, 0.94)");
+  drawingContext.fillStyle = gradient;
+  rect(x, y, panelW, panelH, radius);
+
+  drawingContext.shadowBlur = 0;
+  noStroke();
+  fill(accent[0], accent[1], accent[2], 210);
+  rect(x, y - panelH / 2 + 1, min(panelW * 0.34, 210), 3, 99);
+
+  noFill();
+  stroke(255, 255, 255, 20);
+  strokeWeight(1);
+  rect(x, y, panelW - 8, panelH - 8, max(8, radius - 5));
+  pop();
+}
+
+function drawEyebrow(label, x, y) {
+  noStroke();
+  fill(255, 80, 97);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(11);
+  text(label, x, y);
+}
+
+function drawActionPill(x, y, pillW, pillH, label, accent, pulse) {
+  push();
+  rectMode(CENTER);
+  noStroke();
+  fill(accent[0], accent[1], accent[2], 22 + pulse * 18);
+  rect(x, y, pillW + pulse * 7, pillH + pulse * 4, 999);
+  stroke(accent[0], accent[1], accent[2], 130 + pulse * 80);
+  strokeWeight(1.4);
+  fill(8, 9, 13, 220);
+  rect(x, y, pillW, pillH, 999);
+  noStroke();
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(13);
+  text(label, x, y);
+  pop();
+}
+
+function drawChoiceChip(x, y, arrow, label, accent) {
+  push();
+  rectMode(CENTER);
+  noStroke();
+  fill(accent[0], accent[1], accent[2], 25);
+  rect(x, y, 210, 64, 18);
+  stroke(accent[0], accent[1], accent[2], 130);
+  strokeWeight(1.2);
+  noFill();
+  rect(x, y, 210, 64, 18);
+  noStroke();
+  fill(accent[0], accent[1], accent[2]);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(22);
+  text(`${arrow}  ${label}`, x, y - 1);
+  pop();
+}
+
+function drawAnimatedArrow(x, y, direction, accent) {
+  let travel = (millis() * 0.12) % 36;
+  push();
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(34);
+  for (let i = 0; i < 3; i++) {
+    let local = (travel + i * 26) % 78;
+    let alpha = map(local, 0, 78, 45, 255);
+    fill(accent[0], accent[1], accent[2], alpha);
+    noStroke();
+    text(direction > 0 ? "›" : "‹", x + direction * (local - 39), y);
+  }
+  pop();
+}
+
+function drawLoadingBar(x, y, barW, progress) {
+  let clamped = constrain(progress, 0, 1);
+  rectMode(CENTER);
+  noStroke();
+  fill(255, 255, 255, 20);
+  rect(x, y, barW, 5, 99);
+  rectMode(CORNER);
+  fill(0, 212, 145);
+  rect(x - barW / 2, y - 2.5, barW * clamped, 5, 99);
+  rectMode(CORNER);
 }
 function drawGlassCard(cardW, cardH) {
   rectMode(CENTER);
@@ -888,102 +1167,123 @@ function startQuiz() {
   answers = [];
   bestPlan = null;
 
-  quizFeedback = "Hold both hands still for a moment.";
+  quizFeedback = "Move your right hand to the center.";
   questionNeedsCalibration = true;
 
   quizCardX = 0;
   quizCardRotation = 0;
+  quizDisplayX = 0;
+  quizTransition = null;
+  quizEntryAt = millis();
 
-  calibratedLeftX = null;
   calibratedRightX = null;
 
-  lastSwipeTime = millis();
+  // The first question should be ready immediately. Previously this started
+  // an 800 ms blind period that swallowed an early swipe.
+  lastSwipeTime = 0;
 }
 
 
 function handleQuizAnswer(isInterested) {
+  if (quizTransition) return;
+
+  quizTransition = {
+    isInterested,
+    startedAt: millis(),
+    fromX: quizDisplayX
+  };
+  quizFeedback = isInterested ? "Great choice · saving YES" : "Got it · saving NO";
+  lastSwipeTime = millis();
+}
+
+function updateQuizTransition() {
+  if (!quizTransition) return;
+
+  let progress = constrain((millis() - quizTransition.startedAt) / 420, 0, 1);
+  if (progress < 1) return;
+
+  let isInterested = quizTransition.isInterested;
+  quizTransition = null;
+
   if (isInterested) {
     answers.push(questions[currentQuestion].tag);
-    quizFeedback = "Saved as interested.";
-  } else {
-    quizFeedback = "Skipped.";
   }
 
   lastSwipeTime = millis();
-
   currentQuestion++;
-
   quizCardX = 0;
   quizCardRotation = 0;
+  quizDisplayX = 0;
   questionNeedsCalibration = true;
+  quizEntryAt = millis();
 
   if (currentQuestion >= questions.length) {
-    bestPlan = getBestPlan();
+    recommendedPlans = getRecommendedPlans(3);
+    bestPlan = recommendedPlans[0];
     startResultCelebration();
     appState = "result";
+  } else {
+    quizFeedback = "Reset your hand for the next question...";
   }
 }
 
 function detectQuizSwipe() {
-  let hands = getHands();
-  let sorted = getHandsSortedByScreenX(hands);
+  let rightHand = getRightHand();
+  let now = millis();
 
-  if (sorted.length < 2) {
-    quizFeedback = "Keep both hands visible.";
+  if (!rightHand) {
+    if (now - lastRightHandSeenAt <= HAND_LOSS_GRACE_TIME) {
+      quizFeedback = "Keep swiping...";
+      return;
+    }
+
+    quizFeedback = "Show only your RIGHT hand.";
     questionNeedsCalibration = true;
+    calibratedRightX = null;
     quizCardX = 0;
     quizCardRotation = 0;
     return;
   }
 
-  let leftHand = sorted[0].hand;
-  let rightHand = sorted[sorted.length - 1].hand;
-
-  let leftX = getHandCenter(leftHand).x;
+  lastRightHandSeenAt = now;
   let rightX = getHandCenter(rightHand).x;
 
-  if (questionNeedsCalibration) {
-    calibratedLeftX = leftX;
-    calibratedRightX = rightX;
-    questionNeedsCalibration = false;
-    quizFeedback = "Swipe right hand RIGHT for YES, or left hand LEFT for NO.";
-    return;
-  }
-
-  let now = millis();
-
   if (now - lastSwipeTime < COOLDOWN) {
+    quizFeedback = "Reset your hand for the next question...";
     return;
   }
 
-  let leftMovement = leftX - calibratedLeftX;
-  let rightMovement = rightX - calibratedRightX;
+  if (questionNeedsCalibration) {
+    if (!isHandInStartZone(rightX)) {
+      quizFeedback = "Bring your RIGHT hand back toward the middle.";
+      return;
+    }
 
-  let dominantMovement = 0;
-
-  if (rightMovement > abs(leftMovement)) {
-    dominantMovement = rightMovement;
-  } else {
-    dominantMovement = leftMovement;
+    calibratedRightX = rightX;
+    swipeStartTime = now;
+    questionNeedsCalibration = false;
+    quizFeedback = "Swipe your RIGHT hand: RIGHT for YES, LEFT for NO.";
+    return;
   }
 
-  quizCardX = constrain(dominantMovement * 0.55, -120, 120);
-  quizCardRotation = constrain(dominantMovement * 0.04, -10, 10);
+  let rightMovement = rightX - calibratedRightX;
+  quizCardX = constrain(rightMovement * 0.55, -120, 120);
+  quizCardRotation = constrain(rightMovement * 0.04, -10, 10);
 
-  if (rightMovement > 60) {
+  if (rightMovement > 35) {
     quizFeedback = "YES detected...";
-  } else if (leftMovement < -60) {
+  } else if (rightMovement < -35) {
     quizFeedback = "NO detected...";
   } else {
-    quizFeedback = "Right hand right = YES · Left hand left = NO";
+    quizFeedback = "RIGHT hand: swipe right = YES · swipe left = NO";
   }
 
-  if (rightMovement > SWIPE_DISTANCE) {
+  if (rightMovement > getSwipeDistance()) {
     handleQuizAnswer(true);
     return;
   }
 
-  if (leftMovement < -SWIPE_DISTANCE) {
+  if (rightMovement < -getSwipeDistance()) {
     handleQuizAnswer(false);
     return;
   }
@@ -1017,133 +1317,306 @@ function getBestPlan() {
 }
 
 function drawQuizScreen() {
-  drawDarkOverlay();
-
+  drawDarkOverlay(30);
   let q = questions[currentQuestion];
+  if (!q) return;
+
+  let cardW = min(760, width * 0.86);
+  let cardY = min(330, height * 0.39);
+  let entryProgress = easeOutBack(
+    constrain((millis() - quizEntryAt) / 520, 0, 1)
+  );
+
+  quizDisplayX = lerp(quizDisplayX, quizCardX, 0.2);
+  let displayX = quizDisplayX;
+  let displayRotation = quizCardRotation;
+  let cardAlpha = 1;
+
+  if (quizTransition) {
+    let exitProgress = constrain((millis() - quizTransition.startedAt) / 420, 0, 1);
+    let direction = quizTransition.isInterested ? 1 : -1;
+    displayX = lerp(quizTransition.fromX, direction * width * 0.72, easeOutCubic(exitProgress));
+    displayRotation = lerp(quizCardRotation, direction * 13, exitProgress);
+    cardAlpha = 1 - exitProgress;
+  }
+
+  drawQuestionProgress();
 
   push();
+  drawingContext.globalAlpha = cardAlpha * constrain(entryProgress, 0, 1);
+  translate(width / 2 + displayX, cardY + (1 - entryProgress) * 34);
+  rotate(radians(displayRotation));
+  scale(0.94 + entryProgress * 0.06);
 
-  translate(width / 2 + quizCardX, 145);
-  rotate(radians(quizCardRotation));
-  rectMode(CENTER);
-
-  stroke(230, 0, 0, 190);
-  strokeWeight(2);
-  fill(0, 0, 0, 225);
-  rect(0, 0, min(620, width * 0.82), 150, 24);
-
-  noFill();
-  stroke(230, 0, 0, 70);
-  strokeWeight(5);
-  rect(0, 0, min(620, width * 0.82), 150, 24);
+  let accent = displayX > 15 ? [0, 212, 145] : displayX < -15 ? [255, 57, 76] : [255, 31, 52];
+  drawGlassPanel(0, 0, cardW, 250, 32, accent);
 
   noStroke();
-  fill(255);
   textAlign(CENTER, CENTER);
+  drawEyebrow(`QUESTION ${currentQuestion + 1} OF ${questions.length}`, 0, -88);
+
+  fill(255);
   textStyle(BOLD);
+  textSize(min(30, width * 0.055));
+  drawWrappedText(q.text, 0, -22, cardW - 110, 34);
 
-  textSize(15);
-  text(`Question ${currentQuestion + 1} / ${questions.length}`, 0, -52);
-
-  textSize(23);
-  drawWrappedText(q.text, 0, -8, 520, 26);
-
-  fill(230);
+  fill(195, 200, 210);
   textStyle(NORMAL);
-  textSize(14);
-  text(quizFeedback, 0, 52);
+  textSize(14.5);
+  text(quizFeedback, 0, 74);
 
   pop();
-
-  drawQuizSideLabels();
+  drawQuizGestureDock(cardY + 180);
 }
 
-function drawQuizSideLabels() {
-  textAlign(CENTER, CENTER);
-  textStyle(BOLD);
+function drawQuestionProgress() {
+  let progressW = min(560, width * 0.72);
+  let gap = 7;
+  let segmentW = (progressW - gap * (questions.length - 1)) / questions.length;
+  let startX = width / 2 - progressW / 2;
+  let y = 122;
+
   noStroke();
+  for (let i = 0; i < questions.length; i++) {
+    if (i < currentQuestion) {
+      fill(0, 212, 145, 220);
+    } else if (i === currentQuestion) {
+      let pulse = 190 + sin(millis() * 0.008) * 55;
+      fill(255, 31, 52, pulse);
+    } else {
+      fill(255, 255, 255, 34);
+    }
+    rect(startX + i * (segmentW + gap), y, segmentW, 5, 99);
+  }
+}
 
-  fill(230, 0, 0, 230);
-  textSize(26);
-  text("NO", 85, height / 2);
+function drawQuizGestureDock(y) {
+  let dockW = min(560, width * 0.84);
+  y = min(y, height - 74);
+  push();
+  rectMode(CENTER);
+  noStroke();
+  fill(5, 6, 9, 205);
+  rect(width / 2, y, dockW, 70, 24);
+  stroke(255, 255, 255, 24);
+  strokeWeight(1);
+  noFill();
+  rect(width / 2, y, dockW, 70, 24);
 
-  textSize(14);
+  noStroke();
+  fill(255, 72, 90);
+  textAlign(LEFT, CENTER);
+  textStyle(BOLD);
+  textSize(15);
+  text("←  NO", width / 2 - dockW / 2 + 30, y);
+
+  fill(0, 212, 145);
+  textAlign(RIGHT, CENTER);
+  text("YES  →", width / 2 + dockW / 2 - 30, y);
+
+  let indicatorX = constrain(quizDisplayX * 0.55, -dockW * 0.22, dockW * 0.22);
+  fill(255, 255, 255, 20);
+  rect(width / 2, y, 118, 42, 999);
   fill(255);
-  text("left hand ←", 85, height / 2 + 35);
-
-  fill(0, 190, 90, 230);
-  textSize(26);
-  text("YES", width - 85, height / 2);
-
-  textSize(14);
-  fill(255);
-  text("right hand →", width - 85, height / 2 + 35);
+  circle(width / 2 + indicatorX, y, 10);
+  textAlign(CENTER, CENTER);
+  textStyle(NORMAL);
+  textSize(11);
+  fill(190, 195, 205);
+  text("SWIPE", width / 2, y + 22);
+  pop();
 }
 
 
 
 
 function drawResultScreen() {
-  // lighter dark tint so confetti still shows
-  noStroke();
-  fill(0, 0, 0, 55);
-  rect(0, 0, width, height);
+  drawDarkOverlay(175);
 
   if (resultStarted) {
     drawConfetti();
   }
 
+  let titleProgress = getEntranceProgress(0, 520);
+  push();
+  drawingContext.globalAlpha = titleProgress;
+  translate(0, (1 - titleProgress) * 18);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  drawEyebrow("YOUR PERSONALIZED SHORTLIST", width / 2, 92);
+  fill(255);
+  textStyle(BOLD);
+  textSize(min(38, width * 0.065));
+  text("Packages picked for you", width / 2, 128);
+  fill(185, 190, 200);
+  textStyle(NORMAL);
+  textSize(14.5);
+  text("Ranked by the preferences you shared", width / 2, 160);
+  pop();
+
+  if (width >= 760) {
+    drawDesktopPlanCards();
+  } else {
+    drawMobilePlanCards();
+  }
+
+  fill(175, 180, 190);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textStyle(NORMAL);
+  textSize(12);
+  text("Prices shown per month · VAT may apply", width / 2, height - 24);
+}
+
+function drawDesktopPlanCards() {
+  let availableW = min(1180, width - 80);
+  let gap = 18;
+  let cardW = (availableW - gap * 2) / 3;
+  let cardH = min(410, height - 250);
+  let centerY = 190 + cardH / 2;
+
+  for (let i = 0; i < recommendedPlans.length; i++) {
+    let x = width / 2 + (i - 1) * (cardW + gap);
+    drawPlanCard(recommendedPlans[i], i, x, centerY, cardW, cardH);
+  }
+}
+
+function drawMobilePlanCards() {
+  if (recommendedPlans.length === 0) return;
+
+  let mainW = width - 40;
+  drawPlanCard(recommendedPlans[0], 0, width / 2, 345, mainW, 315);
+
+  for (let i = 1; i < recommendedPlans.length; i++) {
+    let miniW = (width - 52) / 2;
+    let x = 20 + miniW / 2 + (i - 1) * (miniW + 12);
+    drawMiniPlanCard(recommendedPlans[i], i, x, 555, miniW, 116);
+  }
+}
+
+function drawPlanCard(plan, rank, x, y, cardW, cardH) {
+  if (!plan) return;
+
+  let entrance = easeOutBack(
+    constrain((millis() - stateEnteredAt - 170 - rank * 120) / 620, 0, 1)
+  );
+  if (entrance <= 0) return;
+
+  let accent = rank === 0 ? [0, 212, 145] : rank === 1 ? [255, 64, 82] : [152, 118, 255];
+
+  push();
+  drawingContext.globalAlpha = constrain(entrance, 0, 1);
+  translate(x, y + (1 - entrance) * 48);
+  scale(0.88 + entrance * 0.12);
+  drawGlassPanel(0, 0, cardW, cardH, 28, accent);
+
   rectMode(CENTER);
+  noStroke();
+  fill(accent[0], accent[1], accent[2]);
+  rect(0, -cardH / 2 + 30, rank === 0 ? 126 : 88, 28, 999);
+  fill(rank === 0 ? 4 : 255);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(10.5);
+  text(rank === 0 ? "BEST MATCH" : `#${rank + 1} OPTION`, 0, -cardH / 2 + 30);
 
-  stroke(230, 0, 0);
-  strokeWeight(3);
-  fill(0, 0, 0, 220);
-  rect(width / 2, height / 2, min(680, width * 0.88), 470, 30);
+  fill(255);
+  textStyle(BOLD);
+  textSize(constrain(cardW * 0.062, 16, 21));
+  drawWrappedText(plan.name, 0, -cardH / 2 + 82, cardW - 48, 23);
 
-  noFill();
-  stroke(230, 0, 0, 90);
-  strokeWeight(8);
-  rect(width / 2, height / 2, min(680, width * 0.88), 470, 30);
+  fill(accent[0], accent[1], accent[2]);
+  textSize(constrain(cardW * 0.09, 25, 34));
+  text(`AED ${plan.price}`, 0, -cardH / 2 + 140);
+  fill(170, 175, 185);
+  textStyle(NORMAL);
+  textSize(11);
+  text("PER MONTH", 0, -cardH / 2 + 166);
 
+  let metricStart = -cardH / 2 + 205;
+  let metricGap = min(39, (cardH - 225) / 4);
+  drawPlanMetric("DATA", plan.data, 0, metricStart, cardW);
+  drawPlanMetric("SPEED", plan.speed, 0, metricStart + metricGap, cardW);
+  drawPlanMetric("MINUTES", plan.minutes, 0, metricStart + metricGap * 2, cardW);
+  drawPlanMetric("ROAMING", plan.roaming, 0, metricStart + metricGap * 3, cardW);
+
+  let footerY = cardH / 2 - 26;
+  fill(accent[0], accent[1], accent[2], 24);
+  rect(0, footerY, cardW - 34, 38, 13);
+  fill(accent[0], accent[1], accent[2]);
+  textStyle(BOLD);
+  textSize(11.5);
+  let matchLabel = answers.length > 0
+    ? `${plan.matchPercent}% preference match`
+    : "Best value match";
+  text(`${matchLabel}  ·  ${plan.commitment}`, 0, footerY);
+  pop();
+}
+
+function drawPlanMetric(label, value, x, y, cardW) {
+  noStroke();
+  textAlign(LEFT, CENTER);
+  textStyle(BOLD);
+  textSize(9.5);
+  fill(135, 140, 152);
+  text(label, x - cardW / 2 + 24, y);
+  textAlign(RIGHT, CENTER);
+  textStyle(NORMAL);
+  textSize(constrain(cardW * 0.038, 11, 14));
+  fill(235, 237, 241);
+  let displayValue = value.length > 28 ? `${value.slice(0, 27)}…` : value;
+  text(displayValue, x + cardW / 2 - 24, y);
+}
+
+function drawMiniPlanCard(plan, rank, x, y, cardW, cardH) {
+  let entrance = easeOutBack(
+    constrain((millis() - stateEnteredAt - 300 - rank * 120) / 560, 0, 1)
+  );
+  if (entrance <= 0) return;
+
+  push();
+  drawingContext.globalAlpha = constrain(entrance, 0, 1);
+  translate(x, y + (1 - entrance) * 30);
+  scale(0.9 + entrance * 0.1);
+  drawGlassPanel(0, 0, cardW, cardH, 20, rank === 1 ? [255, 64, 82] : [152, 118, 255]);
+  fill(255);
   noStroke();
   textAlign(CENTER, CENTER);
   textStyle(BOLD);
-
-  fill(255);
-  textSize(22);
-  text("Congratulations!", width / 2, height / 2 - 180);
-
-  fill(230, 0, 0);
-  textSize(30);
-  text("Your Best e& Package", width / 2, height / 2 - 140);
-
-  fill(255);
-  textSize(26);
-  drawWrappedText(bestPlan.name, width / 2, height / 2 - 85, 520, 30);
-
-  fill(230, 0, 0);
-  textSize(40);
-  text(`AED ${bestPlan.price}/month`, width / 2, height / 2 + 5);
-
-  fill(255);
-  textSize(18);
+  textSize(12);
+  drawWrappedText(plan.name, 0, -22, cardW - 22, 15);
+  fill(255, 75, 94);
+  textSize(19);
+  text(`AED ${plan.price}`, 0, 25);
+  fill(170, 175, 185);
   textStyle(NORMAL);
+  textSize(9);
+  text("PER MONTH", 0, 43);
+  pop();
+}
 
-  text(`Speed: ${bestPlan.speed}`, width / 2, height / 2 + 62);
-  text(`Data: ${bestPlan.data}`, width / 2, height / 2 + 95);
-  text(`Minutes: ${bestPlan.minutes}`, width / 2, height / 2 + 128);
-  text(`Roaming: ${bestPlan.roaming}`, width / 2, height / 2 + 161);
-  text(`Commitment: ${bestPlan.commitment}`, width / 2, height / 2 + 194);
+function restartExperience() {
+  appState = "welcome";
+  currentQuestion = 0;
+  answers = [];
+  bestPlan = null;
+  recommendedPlans = [];
+  resultStarted = false;
+  confettiPieces = [];
+  quizTransition = null;
+  questionNeedsCalibration = true;
+  calibratedRightX = null;
+  rightHandReadySince = null;
+  thumbsUpSince = null;
+  practiceStep = "right";
+  instructionsStartTime = null;
+  readyStartTime = null;
+  lastSwipeTime = 0;
+  stateEnteredAt = millis();
 
-  fill(210);
-  textSize(15);
-  text(`Matched ${bestPlan.score} of your selected preferences`, width / 2, height / 2 + 230);
-
-  fill(255);
-  textSize(14);
-  text("Refresh the page to start again", width / 2, height / 2 + 262);
-
-  rectMode(CORNER);
+  if (restartButton) {
+    restartButton.classList.remove("is-visible");
+  }
 }
 
 
@@ -1176,4 +1649,25 @@ function drawWrappedText(txt, x, y, maxWidth, lineHeight) {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+}
+
+function getRecommendedPlans(limit = 3) {
+  return plans
+    .map((plan) => {
+      let score = answers.reduce(
+        (total, answer) => total + (plan.features.includes(answer) ? 1 : 0),
+        0
+      );
+
+      return {
+        ...plan,
+        score,
+        matchPercent: answers.length > 0 ? round((score / answers.length) * 100) : 0
+      };
+    })
+    .sort((first, second) => {
+      if (second.score !== first.score) return second.score - first.score;
+      return first.price - second.price;
+    })
+    .slice(0, limit);
 }

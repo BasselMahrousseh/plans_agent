@@ -8,10 +8,10 @@ const hands = new Hands({
 });
 
 hands.setOptions({
-  maxNumHands: 2,
+  maxNumHands: 1,
   modelComplexity: 1,
-  minDetectionConfidence: 0.8,
-  minTrackingConfidence: 0.6
+  minDetectionConfidence: 0.65,
+  minTrackingConfidence: 0.7
 });
 
 hands.onResults(function(results) {
@@ -24,8 +24,8 @@ const camera = new Camera(window.videoElement, {
       image: window.videoElement
     });
   },
-  width: 640,
-  height: 480
+  width: 1280,
+  height: 720
 });
 
 camera.start();

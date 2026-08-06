@@ -2,7 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Two Hand Detector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07080b">
+  <meta name="description" content="e& Package Advisor asks smart questions and recommends the mobile packages that best fit each customer.">
+  <title>e&amp; Package Advisor</title>
 
   <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -20,11 +23,11 @@
   <!-- e& branded UI layer -->
   <div id="brandLayer">
     <div id="logoBadge">
-      <img src="eand-logo.png" alt="e& logo">
-      <span>e& Genie</span>
+      <img src="eand-logo.png" alt="e& Package Advisor logo">
+      <span>e& Package Advisor</span>
     </div>
 
-    <div id="statusPill">Hand Detection Active</div>
+    <div id="statusPill">Package Advisor Ready</div>
   </div>
 
   <!-- e& camera frame -->
@@ -34,6 +37,11 @@
     <div class="corner bottom-left"></div>
     <div class="corner bottom-right"></div>
   </div>
+
+  <button id="restartButton" type="button" aria-label="Start a new package match">
+    <span>Start a new match</span>
+    <span aria-hidden="true">↻</span>
+  </button>
 
   <script src="detection.js"></script>
   <script src="sketch.js"></script>
