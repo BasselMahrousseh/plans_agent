@@ -1,0 +1,414 @@
+:root {
+  color-scheme: dark;
+  --red: #ff1f34;
+  --red-soft: rgba(255, 31, 52, 0.22);
+  --green: #00d491;
+  --ink: #07080b;
+  --glass: rgba(10, 11, 15, 0.78);
+  --line: rgba(255, 255, 255, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(255, 31, 52, 0.16), transparent 38%),
+    var(--ink);
+  color: white;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(180deg, rgba(3, 4, 7, 0.3), transparent 30%, transparent 72%, rgba(3, 4, 7, 0.52)),
+    radial-gradient(circle at center, transparent 45%, rgba(0, 0, 0, 0.28) 100%);
+}
+
+#video {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter: saturate(0.88) contrast(1.06) brightness(0.82);
+}
+
+#canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+#cameraFrame {
+  position: fixed;
+  inset: 22px;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 34px;
+  box-shadow:
+    0 0 0 1px rgba(255, 31, 52, 0.2),
+    0 0 55px rgba(255, 31, 52, 0.15),
+    inset 0 0 90px rgba(0, 0, 0, 0.34);
+  animation: frame-breathe 4s ease-in-out infinite;
+}
+
+#cameraFrame::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 100px rgba(0, 0, 0, 0.3),
+    inset 0 0 160px rgba(255, 31, 52, 0.035);
+}
+
+#cameraFrame::after {
+  position: absolute;
+  top: -18%;
+  left: 0;
+  width: 100%;
+  height: 18%;
+  content: "";
+  opacity: 0.6;
+  background: linear-gradient(180deg, transparent, rgba(255, 31, 52, 0.1), transparent);
+  animation: scan 7s linear infinite;
+}
+
+.corner {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-color: var(--red);
+  opacity: 0.92;
+  filter: drop-shadow(0 0 8px rgba(255, 31, 52, 0.55));
+}
+
+.top-left {
+  top: 14px;
+  left: 14px;
+  border-top: 3px solid var(--red);
+  border-left: 3px solid var(--red);
+  border-top-left-radius: 16px;
+}
+
+.top-right {
+  top: 14px;
+  right: 14px;
+  border-top: 3px solid var(--red);
+  border-right: 3px solid var(--red);
+  border-top-right-radius: 16px;
+}
+
+.bottom-left {
+  bottom: 14px;
+  left: 14px;
+  border-bottom: 3px solid var(--red);
+  border-left: 3px solid var(--red);
+  border-bottom-left-radius: 16px;
+}
+
+.bottom-right {
+  right: 14px;
+  bottom: 14px;
+  border-right: 3px solid var(--red);
+  border-bottom: 3px solid var(--red);
+  border-bottom-right-radius: 16px;
+}
+
+#brandLayer {
+  position: fixed;
+  top: 38px;
+  right: 46px;
+  left: 46px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+#logoBadge,
+#statusPill {
+  border: 1px solid var(--line);
+  background: rgba(5, 6, 9, 0.72);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+#logoBadge {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 16px 9px 12px;
+  border-radius: 16px;
+}
+
+#logoBadge img {
+  display: block;
+  width: 46px;
+  height: auto;
+}
+
+#logoBadge span {
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.2px;
+}
+
+#statusPill {
+  position: relative;
+  padding: 11px 16px 11px 32px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  transition: width 240ms ease, color 240ms ease;
+}
+
+#statusPill::before {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  content: "";
+  background: var(--green);
+  box-shadow: 0 0 0 5px rgba(0, 212, 145, 0.12), 0 0 14px rgba(0, 212, 145, 0.8);
+  transform: translateY(-50%);
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+#qrPanel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 1.5px solid rgba(0, 212, 145, 0.55);
+  border-radius: 24px;
+  background: rgba(6, 12, 11, 0.88);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.36),
+    0 0 0 1px rgba(0, 212, 145, 0.12),
+    0 0 32px rgba(0, 212, 145, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(1.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-8px, -50%);
+  transition: opacity 220ms ease, transform 220ms ease, left 160ms ease, top 160ms ease;
+}
+
+#qrPanel.is-visible {
+  opacity: 1;
+  transform: translate(0, -50%);
+  animation: qr-glow 2.6s ease-in-out infinite;
+}
+
+#qrCode {
+  width: 148px;
+  height: 148px;
+  padding: 8px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 212, 145, 0.5);
+}
+
+#qrCode img,
+#qrCode canvas,
+#qrCode table {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#qrLabel {
+  max-width: 148px;
+  color: #00d491;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@keyframes qr-glow {
+  0%, 100% {
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.36),
+      0 0 0 1px rgba(0, 212, 145, 0.12),
+      0 0 32px rgba(0, 212, 145, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.36),
+      0 0 0 1px rgba(0, 212, 145, 0.2),
+      0 0 48px rgba(0, 212, 145, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+#planTypeControls {
+  position: fixed;
+  /* Lines up with the black swipe-dock panel drawn on canvas: dock center
+     is at cardY (min(330px, 39vh)) + 180px, dock is 70px tall. */
+  top: min(calc(min(330px, 39vh) + 145px), calc(100vh - 145px));
+  left: 50%;
+  z-index: 9;
+  width: min(560px, 84vw);
+  display: flex;
+  justify-content: space-between;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 12px);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+#planTypeControls.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.planTypeButton {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 178px;
+  padding: 9px 16px 9px 10px;
+  border: 1px solid rgba(255, 72, 90, 0.78);
+  border-radius: 999px;
+  color: #f7faff;
+  background: rgba(30, 6, 10, 0.86);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.planTypeButton:hover,
+.planTypeButton:focus-visible {
+  border-color: #ffb1ba;
+  background: rgba(48, 8, 14, 0.92);
+  outline: none;
+  transform: translateY(-2px);
+}
+
+.planTypeIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #df291f;
+}
+
+.planTypeIcon svg {
+  width: 30px;
+  height: 30px;
+  stroke: currentColor;
+  stroke-width: 2.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes frame-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 31, 52, 0.18), 0 0 45px rgba(255, 31, 52, 0.12), inset 0 0 90px rgba(0, 0, 0, 0.34); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 31, 52, 0.34), 0 0 70px rgba(255, 31, 52, 0.2), inset 0 0 100px rgba(0, 0, 0, 0.38); }
+}
+
+@keyframes scan {
+  from { transform: translateY(0); }
+  to { transform: translateY(660%); }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.7; transform: translateY(-50%) scale(0.88); }
+  50% { opacity: 1; transform: translateY(-50%) scale(1.12); }
+}
+
+@media (max-width: 760px) {
+  #cameraFrame {
+    inset: 10px;
+    border-radius: 24px;
+  }
+
+  #brandLayer {
+    top: 22px;
+    right: 24px;
+    left: 24px;
+  }
+
+  #logoBadge {
+    padding: 7px 10px;
+  }
+
+  #logoBadge img {
+    width: 38px;
+  }
+
+  #logoBadge span {
+    display: none;
+  }
+
+  #statusPill {
+    max-width: 235px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .planTypeButton {
+    min-width: 142px;
+    padding-right: 12px;
+    font-size: 12px;
+  }
+
+  .planTypeIcon {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #cameraFrame,
+  #cameraFrame::after,
+  #statusPill::before,
+  #qrPanel.is-visible {
+    animation: none;
+  }
+}
